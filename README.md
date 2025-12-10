@@ -77,3 +77,5 @@ Lightweight realtime TTS for text generated in oobabooga's text-generation-webui
 - Save as persistent attachment to assistant message
 - Port-forwardable WebSocket (UPnP?)
 - Detect 2nd difference between consecutive EOS probability tensors instead of using fixed threshold
+- Restart on "Continue"
+- "Generate audio from text" field
