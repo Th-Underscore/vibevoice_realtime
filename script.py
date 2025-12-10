@@ -29,7 +29,9 @@ except ImportError:
     TTS_TEXT_WINDOW_SIZE = 5
     TTS_SPEECH_WINDOW_SIZE = 6
 
-SETTINGS_FILE = Path(__file__).parent / "config.json"
+SCRIPT_DIR = Path(__file__).parent
+SETTINGS_FILE = SCRIPT_DIR.parent / "config.json"
+TGWUI_ROOT = ([parent for parent in SCRIPT_DIR.parents if parent.name == "text-generation-webui"] or [os.getcwd()])[0]
 
 params = {
     "display_name": "VibeVoice Realtime TTS",
@@ -146,7 +148,7 @@ class VibeVoiceService:
 
         vibevoice_path = Path(vibevoice.__file__).parent.parent
         possible_paths = [
-            Path("extensions/vibevoice_realtime/VibeVoice/demo/voices/streaming_model"),
+            SCRIPT_DIR / Path("VibeVoice/demo/voices/streaming_model"),
             Path(vibevoice_path, "demo/voices/streaming_model"),
             Path("VibeVoice/demo/voices/streaming_model"),
             Path("user_data/VibeVoice/voices")
@@ -161,7 +163,7 @@ class VibeVoiceService:
         if found_dir:
             for pt in found_dir.glob("*.pt"):
                 self.voice_presets[pt.stem] = pt
-            logger.info(f"[VibeVoice] Loaded {len(self.voice_presets)} voices from {found_dir}")
+            logger.info(f"[VibeVoice] Loaded {len(self.voice_presets)} voices from {os.path.relpath(found_dir, TGWUI_ROOT)}")
         else:
             logger.error("[VibeVoice] Could not find voices directory!")
 
@@ -646,7 +648,7 @@ def ui():
         try:
             with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
                 json.dump(data_to_save, f, indent=4)
-            return gr.Info("Configuration saved to extensions/vibevoice_realtime/config.json")
+            return gr.Info(f"Configuration saved to {os.path.relpath(SETTINGS_FILE, TGWUI_ROOT)}")
         except Exception as e:
             return gr.Warning(f"Failed to save settings: {e}")
 
