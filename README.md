@@ -26,6 +26,12 @@ Lightweight realtime TTS for text generated in oobabooga's text-generation-webui
     git clone https://github.com/Th-Underscore/vibevoice_realtime.git
     ```
 
+    _(Optional, just for confirmation)_
+
+    ```bash
+    pip install -r vibevoice_realtime/requirements.txt
+    ```
+
 3. Launch the web UI with the extension:
 
     ```bash
