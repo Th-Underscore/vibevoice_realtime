@@ -1,0 +1,6 @@
+{
+    "disable_flash_attn": false,
+    "cfg_scale": 1.5,
+    "inference_steps": 5,
+    "default_voice_preset": "en-Davis_man"
+}

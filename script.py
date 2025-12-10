@@ -1,14 +1,15 @@
 import asyncio
-from concurrent.futures import Future
 import copy
 import json
 import numpy as np
 import os
-from queue import Queue, Empty
 import threading
 import time
 import torch
 import traceback
+from concurrent.futures import Future
+from pathlib import Path
+from queue import Queue, Empty
 
 import gradio as gr
 from modules.logging_colors import logger
@@ -28,11 +29,32 @@ except ImportError:
     TTS_TEXT_WINDOW_SIZE = 5
     TTS_SPEECH_WINDOW_SIZE = 6
 
+SETTINGS_FILE = Path(__file__).parent / "config.json"
+
 params = {
     "display_name": "VibeVoice Realtime TTS",
     "is_tab": False,
+
     "disable_flash_attn": False,
+    "cfg_scale": 1.5,
+    "inference_steps": 5,
+    "default_voice_preset": "en-Davis_man",
 }
+
+def load_custom_settings():
+    if SETTINGS_FILE.exists():
+        try:
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                saved_settings = json.load(f)
+                # Only update keys that exist in file
+                for k, v in saved_settings.items():
+                    if k in params:
+                        params[k] = v
+                        logger.info(f"[VibeVoice] Loaded config {k}: {v}")
+        except Exception as e:
+            logger.error(f"[VibeVoice] Failed to load config.json: {e}")
+
+load_custom_settings()
 
 # Global State
 _tts_service = None
@@ -46,12 +68,6 @@ _audio_chunks_lock = threading.Lock()
 
 _tts_queue = Queue()
 _last_seen_len = 0
-
-# Config State
-_gen_params = {
-    "cfg_scale": 1.5,
-    "inference_steps": 5
-}
 
 # Track client completion for each stream
 _completion_events: dict[str, threading.Event] = {}
@@ -350,14 +366,14 @@ def _tts_worker():
 
             target_voice = None
             if _tts_service:
-                target_voice = _tts_service.default_voice_key or os.environ.get("VIBEVOICE_VOICE", list(_tts_service.voice_presets.keys())[0])
+                target_voice = _tts_service.default_voice_key or params.get("default_voice_preset", "en-Davis_man")
 
             cmd, payload = item
 
             if cmd == "RESET":
                 # Apply UI configuration
-                cfg_val = _gen_params.get("cfg_scale", 1.5)
-                steps_val = _gen_params.get("inference_steps", 5)
+                cfg_val = params.get("cfg_scale", 1.5)
+                steps_val = params.get("inference_steps", 5)
 
                 if _tts_service and _tts_service.model:
                     _tts_service.model.set_ddpm_inference_steps(num_steps=steps_val)
@@ -613,10 +629,29 @@ def ui():
         gr.Markdown("### VibeVoice Realtime TTS\n**Error:** Model not loaded.")
         return
 
+    def save_current_settings(disable_fa, cfg, steps, voice):
+        params["disable_flash_attn"] = disable_fa
+        params["cfg_scale"] = cfg
+        params["inference_steps"] = steps
+        params["default_voice_preset"] = voice
+
+        # Collect config values
+        data_to_save = {
+            "disable_flash_attn": disable_fa,
+            "cfg_scale": cfg,
+            "inference_steps": steps,
+            "default_voice_preset": voice
+        }
+
+        try:
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+                json.dump(data_to_save, f, indent=4)
+            return gr.Info("Configuration saved to extensions/vibevoice_realtime/config.json")
+        except Exception as e:
+            return gr.Warning(f"Failed to save settings: {e}")
+
     with gr.Group():
         gr.Markdown("### VibeVoice Realtime TTS")
-
-        # TODO: Stop generation/streaming button
 
         with gr.Row():
             enable_checkbox = gr.Checkbox(label="Enable VibeVoice TTS", value=False, scale=1)
@@ -628,9 +663,10 @@ def ui():
                 return enable
             enable_checkbox.change(toggle_tts, enable_checkbox, enable_checkbox)
 
+        # --- Config Controls ---
         with gr.Row():
             disable_fa_chk = gr.Checkbox(
-                label="Disable Flash Attention 2 (Check if experiencing VRAM/Crash issues)",
+                label="Disable Flash Attention 2",
                 value=params.get("disable_flash_attn", False),
                 interactive=True,
                 scale=2
@@ -657,15 +693,25 @@ def ui():
             )
 
         with gr.Row():
-            cfg_slider = gr.Slider(label="CFG Scale", minimum=1.0, maximum=3.0, step=0.05, value=1.5, scale=1, interactive=True)
-            steps_slider = gr.Slider(label="Inference Steps", minimum=1, maximum=20, step=1, value=5, scale=1, interactive=True)
+            cfg_slider = gr.Slider(
+                label="CFG Scale",
+                minimum=1.0, maximum=3.0, step=0.05,
+                value=params.get("cfg_scale", 1.5),
+                scale=1, interactive=True
+            )
+            steps_slider = gr.Slider(
+                label="Inference Steps",
+                minimum=1, maximum=20, step=1,
+                value=params.get("inference_steps", 5),
+                scale=1, interactive=True
+            )
 
             def update_cfg(val):
-                _gen_params["cfg_scale"] = val
+                params["cfg_scale"] = val
                 return val
 
             def update_steps(val):
-                _gen_params["inference_steps"] = val
+                params["inference_steps"] = val
                 return val
 
             cfg_slider.change(update_cfg, cfg_slider, None)
@@ -677,17 +723,35 @@ def ui():
             except Exception:
                 voice_choices = []
 
-            voice_dropdown = gr.Dropdown(label="Voice Preset", choices=voice_choices, value=_tts_service.default_voice_key if _tts_service else None, interactive=True)
+            current_voice = (_tts_service.default_voice_key if _tts_service else None) or params.get("default_voice_preset", "en-Davis_man")
+
+            voice_dropdown = gr.Dropdown(
+                label="Voice Preset",
+                choices=voice_choices,
+                value=current_voice,
+                interactive=True,
+                scale=3
+            )
+
+            save_conf_btn = gr.Button("💾 Save Config", scale=1, variant="primary")
 
             def set_voice_ui(selected_key: str):
                 global _tts_service
                 if not _tts_service:
                     return "Error"
                 _tts_service.set_voice_key(selected_key)
+                params["default_voice_preset"] = selected_key
                 return f"Voice set to {selected_key}"
 
             voice_dropdown.change(set_voice_ui, inputs=voice_dropdown)
 
+            save_conf_btn.click(
+                fn=save_current_settings,
+                inputs=[disable_fa_chk, cfg_slider, steps_slider, voice_dropdown],
+                outputs=None
+            )
+
+        # --- Audio Output ---
         with gr.Row():
             def get_audio_output():
                 global _audio_chunks_for_ui
@@ -714,7 +778,6 @@ def ui():
             refresh_button.click(get_audio_output, outputs=audio_output)
 
         with gr.Row():
-            # Removed the misleading <audio> tag. Added Visual status.
             gr.HTML("""
             <div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px; background: rgba(0,0,0,0.05);">
                 <h4>Realtime Stream</h4>
