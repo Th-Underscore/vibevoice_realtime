@@ -66,6 +66,18 @@ Lightweight realtime TTS for text generated in oobabooga's text-generation-webui
 2. Scroll down and enable "VibeVoice TTS"
 3. Generate text! Audio is synthesized in realtime for emitted text chunks
 
+## Configuration
+
+Basic config:
+
+- Disable Flash Attention 2.0 (default: false)
+- CFG scale (default: 1.5)
+- Inference steps (default: 5)
+- Default voice preset (default: en-Davis_man)
+- EOS threshold (default: 0.0007)
+
+To set the WebSocket port to a fixed value (for port forwarding), find `_websocket_port = 0` in [`script.py`](./script.py#L65) (line 65) and replace `0` with your desired port number.
+
 <!-- Remaining configuration, implementation details and troubleshooting were removed for conciseness. See `script.py` for runtime options and voice preset locations. -->
 
 ## To-Do
