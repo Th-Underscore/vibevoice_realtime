@@ -40,7 +40,7 @@ params = {
     "disable_flash_attn": False,
     "cfg_scale": 1.5,
     "inference_steps": 5,
-    "eos_threshold": 0.0001,
+    "eos_threshold": 0.0007,
     "default_voice_preset": "en-Davis_man",
 }
 
@@ -250,7 +250,7 @@ class VibeVoiceIncrementalGenerator:
             self.token_buffer = []
 
         max_audio_windows = 1000
-        eos_threshold = params.get("eos_threshold", 0.0001)
+        eos_threshold = params.get("eos_threshold", 0.0007)
         for _ in range(max_audio_windows):
             if self.finished:
                 break
@@ -258,7 +258,7 @@ class VibeVoiceIncrementalGenerator:
             yield from self._generate_window(None, eos_threshold)
 
     @torch.no_grad()
-    def _generate_window(self, token_ids: np.ndarray | None = None, eos_threshold=0.0002):
+    def _generate_window(self, token_ids: np.ndarray | None = None, eos_threshold=0.001):
         if self.finished:
             return
 
@@ -713,7 +713,7 @@ def ui():
             eos_thres_slider = gr.Slider(
                 label="EOS Threshold",
                 minimum=0.0, maximum=0.5, step=0.00005,
-                value=params.get("eos_threshold", 0.0015),
+                value=params.get("eos_threshold", 0.0007),
                 scale=1, interactive=True
             )
 
