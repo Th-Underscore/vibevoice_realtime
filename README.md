@@ -1,6 +1,6 @@
 # VibeVoice Realtime TTS Extension
 
-Lightweight realtime TTS for text generated in the text-generation-webui using the VibeVoice streaming model.
+Lightweight realtime TTS for text generated in oobabooga's text-generation-webui using the VibeVoice streaming model.
 
 ## Quick features
 
@@ -13,14 +13,23 @@ Lightweight realtime TTS for text generated in the text-generation-webui using t
 
     ```bash
     git clone https://github.com/microsoft/VibeVoice.git
-    pip install -e VibeVoice
+    cd VibeVoice
+    pip install -e .
     ```
 
     Ensure required voice preset `.pt` files are present (VibeVoice demo voices directory). These will be fetched by the extension automatically.
 
-2. Launch the web UI with the extension:
+2. Install the extension:
 
     ```bash
+    cd path/to/text-generation-webui/extensions
+    git clone https://github.com/Th-Underscore/vibevoice_realtime.git
+    ```
+
+3. Launch the web UI with the extension:
+
+    ```bash
+    cd path/to/text-generation-webui
     python server.py --extensions vibevoice_realtime
     ```
 
@@ -30,10 +39,11 @@ Lightweight realtime TTS for text generated in the text-generation-webui using t
 
 1. Open text-generation-webui and go to the "Text generation" tab
 2. Scroll down and enable "VibeVoice TTS"
-3. Generate text — Audio is synthesized in realtime for emitted text chunks
+3. Generate text! Audio is synthesized in realtime for emitted text chunks
 
 <!-- Remaining configuration, implementation details and troubleshooting were removed for conciseness. See `script.py` for runtime options and voice preset locations. -->
 
 ## To-Do
 
 - Refactor into multiple files for maintainability
+- Other TODO stuff in `script.py`
