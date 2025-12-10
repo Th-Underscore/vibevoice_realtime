@@ -11,6 +11,16 @@ Lightweight realtime TTS for text generated in oobabooga's text-generation-webui
 
 1. **Important**: Get text-generation-webui text streaming PR ([#7348](https://github.com/oobabooga/text-generation-webui/pull/7348)):
 
+    If you installed text-generation-webui via Git:
+
+    ```bash
+    cd path/to/text-generation-webui
+    git fetch origin pull/7348/head:pr/streaming
+    git switch pr/streaming
+    ```
+
+    If it errors, or you installed via a different method, you need a fresh install:
+
     ```bash
     git clone https://github.com/oobabooga/text-generation-webui.git
     cd text-generation-webui
