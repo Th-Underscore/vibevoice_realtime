@@ -607,12 +607,12 @@ def _start_websocket_server():
     _websocket_server = SimpleAudioServer()
 
     def run():
+        global _websocket_port
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         _websocket_server.loop = loop
         start_server = websockets.serve(_websocket_server.handler, "0.0.0.0", _websocket_port)
         server = loop.run_until_complete(start_server)
-        global _websocket_port
         _websocket_port = server.sockets[0].getsockname()[1]
         logger.info(f"[VibeVoice] Streaming at ws://localhost:{_websocket_port}")
         _server_ready_event.set()
