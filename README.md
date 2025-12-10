@@ -75,3 +75,5 @@ Lightweight realtime TTS for text generated in oobabooga's text-generation-webui
 - Stop on interruption (e.g. user input mid-stream)
 - "Stop/Pause Generation/Stream" button
 - Save as persistent attachment to assistant message
+- Port-forwardable WebSocket (UPnP?)
+- Detect 2nd difference between consecutive EOS probability tensors instead of using fixed threshold
