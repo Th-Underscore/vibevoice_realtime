@@ -31,6 +31,7 @@ except ImportError:
 params = {
     "display_name": "VibeVoice Realtime TTS",
     "is_tab": False,
+    "disable_flash_attn": False,
 }
 
 # Global State
@@ -72,16 +73,45 @@ class VibeVoiceService:
         self.inference_steps = 5
 
     def load(self):
+        # Clean up existing model if this is a reload
+        if self.model is not None:
+            logger.info("[VibeVoice] Unloading existing model...")
+            del self.model
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
         logger.info(f"[VibeVoice] Loading model from {self.model_path}...")
         self.processor = VibeVoiceStreamingProcessor.from_pretrained(self.model_path)
 
         load_dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
-        self.model = VibeVoiceStreamingForConditionalGenerationInference.from_pretrained(
-            self.model_path,
-            torch_dtype=load_dtype,
-            device_map=self.device,
-            attn_implementation="sdpa"
-        )
+
+        # Determine attention implementation
+        attn_impl = "sdpa"
+        if self.device == "cuda" and not params.get("disable_flash_attn", False):
+            attn_impl = "flash_attention_2"
+
+        logger.info(f"[VibeVoice] Attempting to use attention implementation: {attn_impl}")
+
+        try:
+            self.model = VibeVoiceStreamingForConditionalGenerationInference.from_pretrained(
+                self.model_path,
+                torch_dtype=load_dtype,
+                device_map=self.device,
+                attn_implementation=attn_impl
+            )
+        except Exception as e:
+            # Fallback if FA2 fails (e.g. not installed or GPU incompatibility)
+            if attn_impl == "flash_attention_2":
+                logger.warning(f"[VibeVoice] Flash Attention 2 failed to load ({e}). Falling back to SDPA.")
+                self.model = VibeVoiceStreamingForConditionalGenerationInference.from_pretrained(
+                    self.model_path,
+                    torch_dtype=load_dtype,
+                    device_map=self.device,
+                    attn_implementation="sdpa"
+                )
+            else:
+                raise e
+
         self.model.eval()
 
         self.model.model.noise_scheduler = self.model.model.noise_scheduler.from_config(
@@ -91,7 +121,7 @@ class VibeVoiceService:
         )
         self.model.set_ddpm_inference_steps(num_steps=self.inference_steps)
         self._load_voice_presets()
-        logger.info("[VibeVoice] Ready.")
+        logger.info(f"[VibeVoice] Ready. (Attention: {self.model.model.config._attn_implementation})")
 
     def _load_voice_presets(self):
         import os
@@ -585,7 +615,7 @@ def ui():
 
     with gr.Group():
         gr.Markdown("### VibeVoice Realtime TTS")
-        
+
         # TODO: Stop generation/streaming button
 
         with gr.Row():
@@ -599,13 +629,41 @@ def ui():
             enable_checkbox.change(toggle_tts, enable_checkbox, enable_checkbox)
 
         with gr.Row():
+            disable_fa_chk = gr.Checkbox(
+                label="Disable Flash Attention 2 (Check if experiencing VRAM/Crash issues)",
+                value=params.get("disable_flash_attn", False),
+                interactive=True,
+                scale=2
+            )
+            reload_btn = gr.Button("Reload Model", scale=1, variant="secondary")
+
+            def update_fa_param(x):
+                params["disable_flash_attn"] = x
+                return x
+
+            def reload_model_trigger():
+                if _tts_service:
+                    try:
+                        _tts_service.load()
+                        return "Model Reloaded Successfully"
+                    except Exception as e:
+                        logger.error(f"[VibeVoice] Reload failed: {e}")
+                        return f"Error: {e}"
+                return "Service not initialized"
+
+            disable_fa_chk.change(update_fa_param, disable_fa_chk, None)
+            reload_btn.click(reload_model_trigger, None, None).then(
+                fn=lambda: gr.Info("VibeVoice Model Reloaded"), outputs=None
+            )
+
+        with gr.Row():
             cfg_slider = gr.Slider(label="CFG Scale", minimum=1.0, maximum=3.0, step=0.05, value=1.5, scale=1, interactive=True)
             steps_slider = gr.Slider(label="Inference Steps", minimum=1, maximum=20, step=1, value=5, scale=1, interactive=True)
 
             def update_cfg(val):
                 _gen_params["cfg_scale"] = val
                 return val
-            
+
             def update_steps(val):
                 _gen_params["inference_steps"] = val
                 return val
@@ -637,12 +695,12 @@ def ui():
                     if _audio_chunks_for_ui:
                         # Copy accumulated audio
                         chunks_snapshot = list(_audio_chunks_for_ui)
-                        
+
                         if not chunks_snapshot:
                             return None
 
                         audio_data = np.concatenate(chunks_snapshot, axis=0)
-                        
+
                         sr = 24000
                         try:
                             sr = _tts_service.processor.feature_extractor.sampling_rate
@@ -682,7 +740,7 @@ def custom_js():
         let currentStreamId = null;
         let lastScheduledSource = null;
         const NO_CHUNK_TIMEOUT = 1000; // 1 second of no chunks = stream ended
-        
+
         // Timer Logic
         let playbackStartTime = 0;
         let timerInterval = null;
@@ -692,7 +750,7 @@ def custom_js():
             const elapsed = audioContext.currentTime - playbackStartTime;
             const mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
             const secs = Math.floor(elapsed % 60).toString().padStart(2, '0');
-            
+
             const statusSpan = document.getElementById('vibevoice-status');
             if (statusSpan) {
                 statusSpan.textContent = `Playing (${mins}:${secs})`;
@@ -724,21 +782,21 @@ def custom_js():
 
                 const startTime = Math.max(nextStartTime, currentTime);
                 source.start(startTime);
-                
+
                 lastScheduledSource = source;
-                
+
                 source.onended = () => {
                     setTimeout(() => {
                         if (lastScheduledSource === source) {
                             console.debug(`[VibeVoice] ✓ Stream ended.`);
-                            
+
                             if (ws && ws.readyState === WebSocket.OPEN) {
                                 ws.send(JSON.stringify({
                                     type: 'playback_complete',
                                     stream_id: currentStreamId
                                 }));
                             }
-                            
+
                             const statusSpan = document.getElementById('vibevoice-status');
                             const bar = document.getElementById('vibevoice-bar');
                             if (statusSpan) {
@@ -746,14 +804,14 @@ def custom_js():
                                 statusSpan.style.color = 'green';
                             }
                             if (bar) bar.style.width = '0%';
-                            
+
                             if (timerInterval) clearInterval(timerInterval);
                             hasStartedPlaying = false;
                             lastScheduledSource = null;
                         }
                     }, NO_CHUNK_TIMEOUT);
                 };
-                
+
                 nextStartTime = startTime + buffer.duration;
             }
         }
@@ -761,7 +819,7 @@ def custom_js():
         function connectVibeVoiceStream() {
             const statusSpan = document.getElementById('vibevoice-status');
             const bar = document.getElementById('vibevoice-bar');
-            
+
             const portPart = '__VIBEVOICE_WS_PORT__' !== '0' ? ':__VIBEVOICE_WS_PORT__' : (window.location.port ? ':' + window.location.port : '');
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const url = protocol + '//' + window.location.hostname + portPart;
@@ -777,20 +835,20 @@ def custom_js():
             ws.onmessage = (event) => {
                 if (typeof event.data === 'string') {
                     const msg = JSON.parse(event.data);
-                    
+
                     if (msg.type === 'stream_start') {
                         currentStreamId = msg.stream_id;
-                        
+
                         nextStartTime = 0;
                         audioQueue = [];
                         hasStartedPlaying = false;
                         accumulatedSec = 0;
                         lastScheduledSource = null;
-                        
+
                         if (audioContext) {
                             nextStartTime = audioContext.currentTime + 0.1;
                         }
-                        
+
                         if(statusSpan) {
                             statusSpan.textContent = 'Buffering...';
                             statusSpan.style.color = 'yellow';
@@ -798,7 +856,7 @@ def custom_js():
                         if (bar) bar.style.width = '10%';
                     }
                 } else if (event.data instanceof ArrayBuffer) {
-                    
+
                     if (audioContext && audioContext.state === 'suspended') {
                         audioContext.resume();
                     }
@@ -816,14 +874,14 @@ def custom_js():
                         if (accumulatedSec >= START_THRESHOLD_SEC) {
                             hasStartedPlaying = true;
                             playbackStartTime = audioContext.currentTime;
-                            
+
                             const statusSpan = document.getElementById('vibevoice-status');
                             const bar = document.getElementById('vibevoice-bar');
                             if(statusSpan) {
                                 statusSpan.style.color = 'green';
                             }
                             if(bar) bar.style.width = '100%';
-                            
+
                             if (timerInterval) clearInterval(timerInterval);
                             timerInterval = setInterval(updateTimer, 500);
 
