@@ -257,7 +257,7 @@ class VibeVoiceIncrementalGenerator:
             # eos_threshold *= 0.96
             yield from self._generate_window(None, eos_threshold)
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def _generate_window(self, token_ids: np.ndarray | None = None, eos_threshold=0.001):
         if self.finished:
             return
@@ -290,24 +290,15 @@ class VibeVoiceIncrementalGenerator:
 
         # --- Speech Generation ---
         diffusion_indices = torch.LongTensor([0]).to(device)
+        latents_buffer = []  # Accumulate to decode in one batch
+
         for _ in range(TTS_SPEECH_WINDOW_SIZE):
             pos_cond = self.tts_lm_outputs.last_hidden_state[diffusion_indices, -1, :]
             neg_cond = self.neg_tts_lm_outputs.last_hidden_state[diffusion_indices, -1, :]
 
             speech_latent = self.model.sample_speech_tokens(pos_cond, neg_cond, cfg_scale=self.cfg_scale).unsqueeze(1)
-            scaled_latent = speech_latent / self.model.speech_scaling_factor.to(device) - self.model.speech_bias_factor.to(device)
-            audio_chunk = self.model.acoustic_tokenizer.decode(
-                scaled_latent.to(self.model.acoustic_tokenizer.device), cache=self.acoustic_cache, sample_indices=diffusion_indices, use_cache=True, debug=False
-            )
 
-            if torch.is_tensor(audio_chunk):
-                audio_np = audio_chunk.detach().cpu().float().numpy()
-            else:
-                audio_np = np.array(audio_chunk)
-            if audio_np.ndim > 1:
-                audio_np = audio_np.reshape(-1)
-
-            yield audio_np
+            latents_buffer.append(speech_latent)
 
             acoustic_embed = self.model.acoustic_connector(speech_latent)
             dummy_id = torch.ones((1, 1), dtype=torch.long, device=device)
@@ -325,7 +316,7 @@ class VibeVoiceIncrementalGenerator:
             # logger.debug(f"[VibeVoice] TTS EOS-Worthy ({tts_eos_logits[0].item()} > {eos_threshold}) > {tts_eos_logits[0].item() > eos_threshold}")
             if tts_eos_logits[0].item() > eos_threshold:
                 self.finished = True
-                return
+                break
 
             n_past, n_len = self.neg_tts_lm_state["past_key_values"], self.neg_tts_lm_state["seq_len"]
             n_pos, n_mask = torch.arange(n_len, n_len+1, device=device), torch.cat([self.neg_tts_lm_state["attention_mask"], torch.ones((1, 1), device=device)], dim=-1)
@@ -334,6 +325,29 @@ class VibeVoiceIncrementalGenerator:
                 tts_text_masks=torch.zeros_like(dummy_id), lm_last_hidden_state=acoustic_embed, return_dict=True, output_attentions=False, output_hidden_states=False
             )
             self.neg_tts_lm_state.update({"past_key_values": self.neg_tts_lm_outputs.past_key_values, "seq_len": n_len+1, "attention_mask": n_mask})
+
+        # --- Batch Decode ---
+        if latents_buffer:
+            combined_latents = torch.cat(latents_buffer, dim=1)
+
+            scaled_latents = combined_latents / self.model.speech_scaling_factor.to(device) - self.model.speech_bias_factor.to(device)
+
+            audio_chunk = self.model.acoustic_tokenizer.decode(
+                scaled_latents.to(self.model.acoustic_tokenizer.device),
+                cache=self.acoustic_cache,
+                sample_indices=diffusion_indices,
+                use_cache=True
+            )
+
+            if torch.is_tensor(audio_chunk):
+                audio_np = audio_chunk.detach().cpu().float().numpy()
+            else:
+                audio_np = np.array(audio_chunk)
+
+            if audio_np.ndim > 1:
+                audio_np = audio_np.reshape(-1)
+
+            yield audio_np
 
 
 def _get_next_stream_id():
@@ -611,7 +625,13 @@ def _start_websocket_server():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         _websocket_server.loop = loop
-        start_server = websockets.serve(_websocket_server.handler, "0.0.0.0", _websocket_port)
+        start_server = websockets.serve(
+            _websocket_server.handler,
+            "0.0.0.0",
+            _websocket_port,
+            origins=None,
+            ping_interval=None
+        )
         server = loop.run_until_complete(start_server)
         _websocket_port = server.sockets[0].getsockname()[1]
         logger.info(f"[VibeVoice] Streaming at ws://0.0.0.0:{_websocket_port}")
@@ -724,7 +744,7 @@ def ui():
             def update_steps(val):
                 params["inference_steps"] = val
                 return val
-            
+
             def update_eos_thres(val):
                 params["eos_threshold"] = val
                 return val
