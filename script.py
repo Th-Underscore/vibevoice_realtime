@@ -40,6 +40,7 @@ params = {
     "disable_flash_attn": False,
     "cfg_scale": 1.5,
     "inference_steps": 5,
+    "eos_threshold": 0.0001,
     "default_voice_preset": "en-Davis_man",
 }
 
@@ -47,12 +48,10 @@ def load_custom_settings():
     if SETTINGS_FILE.exists():
         try:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                saved_settings = json.load(f)
+                saved_settings: dict = json.load(f)
                 # Only update keys that exist in file
-                for k, v in saved_settings.items():
-                    if k in params:
-                        params[k] = v
-                        logger.debug(f"[VibeVoice] Loaded config {k}: {v}")
+                params.update(saved_settings)
+                logger.debug(f"[VibeVoice] Loaded config: {saved_settings}")
         except Exception as e:
             logger.error(f"[VibeVoice] Failed to load config.json: {e}")
 
@@ -250,16 +249,16 @@ class VibeVoiceIncrementalGenerator:
             yield from self._generate_window(self.token_buffer)
             self.token_buffer = []
 
-        max_audio_windows = 20
-        eos_threshold = 0.0015
+        max_audio_windows = 1000
+        eos_threshold = params.get("eos_threshold", 0.0001)
         for _ in range(max_audio_windows):
             if self.finished:
                 break
-            eos_threshold *= 0.9
+            # eos_threshold *= 0.96
             yield from self._generate_window(None, eos_threshold)
 
     @torch.no_grad()
-    def _generate_window(self, token_ids: np.ndarray, eos_threshold=0.0015):
+    def _generate_window(self, token_ids: np.ndarray | None = None, eos_threshold=0.0002):
         if self.finished:
             return
 
@@ -322,6 +321,8 @@ class VibeVoiceIncrementalGenerator:
             self.tts_lm_state.update({"past_key_values": self.tts_lm_outputs.past_key_values, "seq_len": t_len+1, "attention_mask": t_mask})
 
             tts_eos_logits = torch.sigmoid(self.model.tts_eos_classifier(self.tts_lm_outputs.last_hidden_state[diffusion_indices, -1, :]))
+            # logger.debug(f"[VibeVoice] TTS EOS logits ({tts_eos_logits.shape}): {tts_eos_logits}")
+            # logger.debug(f"[VibeVoice] TTS EOS-Worthy ({tts_eos_logits[0].item()} > {eos_threshold}) > {tts_eos_logits[0].item() > eos_threshold}")
             if tts_eos_logits[0].item() > eos_threshold:
                 self.finished = True
                 return
@@ -631,10 +632,11 @@ def ui():
         gr.Markdown("### VibeVoice Realtime TTS\n**Error:** Model not loaded.")
         return
 
-    def save_current_settings(disable_fa, cfg, steps, voice):
+    def save_current_settings(disable_fa, cfg, steps, eos_thres, voice):
         params["disable_flash_attn"] = disable_fa
         params["cfg_scale"] = cfg
         params["inference_steps"] = steps
+        params["eos_threshold"] = eos_thres
         params["default_voice_preset"] = voice
 
         # Collect config values
@@ -642,6 +644,7 @@ def ui():
             "disable_flash_attn": disable_fa,
             "cfg_scale": cfg,
             "inference_steps": steps,
+            "eos_threshold": eos_thres,
             "default_voice_preset": voice
         }
 
@@ -707,6 +710,12 @@ def ui():
                 value=params.get("inference_steps", 5),
                 scale=1, interactive=True
             )
+            eos_thres_slider = gr.Slider(
+                label="EOS Threshold",
+                minimum=0.0, maximum=0.5, step=0.00005,
+                value=params.get("eos_threshold", 0.0015),
+                scale=1, interactive=True
+            )
 
             def update_cfg(val):
                 params["cfg_scale"] = val
@@ -715,9 +724,14 @@ def ui():
             def update_steps(val):
                 params["inference_steps"] = val
                 return val
+            
+            def update_eos_thres(val):
+                params["eos_threshold"] = val
+                return val
 
             cfg_slider.change(update_cfg, cfg_slider, None)
             steps_slider.change(update_steps, steps_slider, None)
+            eos_thres_slider.change(update_eos_thres, eos_thres_slider, None)
 
         with gr.Row():
             try:
@@ -749,7 +763,7 @@ def ui():
 
             save_conf_btn.click(
                 fn=save_current_settings,
-                inputs=[disable_fa_chk, cfg_slider, steps_slider, voice_dropdown],
+                inputs=[disable_fa_chk, cfg_slider, steps_slider, eos_thres_slider, voice_dropdown],
                 outputs=None
             )
 
