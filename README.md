@@ -73,4 +73,5 @@ Lightweight realtime TTS for text generated in oobabooga's text-generation-webui
 - Refactor into multiple files for maintainability
 - Ignore \<think> and "ASSISTANT:" (parse prompt template?)
 - Stop on interruption (e.g. user input mid-stream)
-- "Stop Generation/Stream" button
+- "Stop/Pause Generation/Stream" button
+- Save as persistent attachment to assistant message
