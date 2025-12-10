@@ -9,7 +9,16 @@ Lightweight realtime TTS for text generated in oobabooga's text-generation-webui
 
 ## Installation
 
-1. Build and install the [VibeVoice](https://github.com/microsoft/VibeVoice/blob/main/docs/vibevoice-realtime-0.5b.md#installation) package:
+1. **Important**: Get text-generation-webui text streaming PR ([#7348](https://github.com/oobabooga/text-generation-webui/pull/7348)):
+
+    ```bash
+    git clone https://github.com/oobabooga/text-generation-webui.git
+    cd text-generation-webui
+    git fetch origin pull/7348/head:pr/streaming
+    git switch pr/streaming
+    ```
+
+2. Build and install the [VibeVoice](https://github.com/microsoft/VibeVoice/blob/main/docs/vibevoice-realtime-0.5b.md#installation) package:
 
     ```bash
     git clone https://github.com/microsoft/VibeVoice.git
@@ -19,7 +28,7 @@ Lightweight realtime TTS for text generated in oobabooga's text-generation-webui
 
     Ensure required voice preset `.pt` files are present (VibeVoice demo voices directory). These will be fetched by the extension automatically.
 
-2. Install the extension:
+3. Install the extension:
 
     ```bash
     cd path/to/text-generation-webui/extensions
@@ -32,7 +41,7 @@ Lightweight realtime TTS for text generated in oobabooga's text-generation-webui
     pip install -r vibevoice_realtime/requirements.txt
     ```
 
-3. Launch the web UI with the extension:
+4. Launch the web UI with the extension:
 
     ```bash
     cd path/to/text-generation-webui
