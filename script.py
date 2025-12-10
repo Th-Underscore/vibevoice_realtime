@@ -52,7 +52,7 @@ def load_custom_settings():
                 for k, v in saved_settings.items():
                     if k in params:
                         params[k] = v
-                        logger.info(f"[VibeVoice] Loaded config {k}: {v}")
+                        logger.debug(f"[VibeVoice] Loaded config {k}: {v}")
         except Exception as e:
             logger.error(f"[VibeVoice] Failed to load config.json: {e}")
 
