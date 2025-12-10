@@ -321,8 +321,8 @@ class VibeVoiceIncrementalGenerator:
             self.tts_lm_state.update({"past_key_values": self.tts_lm_outputs.past_key_values, "seq_len": t_len+1, "attention_mask": t_mask})
 
             tts_eos_logits = torch.sigmoid(self.model.tts_eos_classifier(self.tts_lm_outputs.last_hidden_state[diffusion_indices, -1, :]))
-            # logger.debug(f"[VibeVoice] TTS EOS logits ({tts_eos_logits.shape}): {tts_eos_logits}")
-            # logger.debug(f"[VibeVoice] TTS EOS-Worthy ({tts_eos_logits[0].item()} > {eos_threshold}) > {tts_eos_logits[0].item() > eos_threshold}")
+            logger.debug(f"[VibeVoice] TTS EOS logits ({tts_eos_logits.shape}): {tts_eos_logits}")
+            logger.debug(f"[VibeVoice] TTS EOS-Worthy ({tts_eos_logits[0].item()} > {eos_threshold}) > {tts_eos_logits[0].item() > eos_threshold}")
             if tts_eos_logits[0].item() > eos_threshold:
                 self.finished = True
                 return
@@ -610,7 +610,7 @@ def _start_websocket_server():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         _websocket_server.loop = loop
-        start_server = websockets.serve(_websocket_server.handler, "0.0.0.0", 0)
+        start_server = websockets.serve(_websocket_server.handler, "0.0.0.0", _websocket_port)
         server = loop.run_until_complete(start_server)
         global _websocket_port
         _websocket_port = server.sockets[0].getsockname()[1]
