@@ -52,4 +52,6 @@ Lightweight realtime TTS for text generated in oobabooga's text-generation-webui
 ## To-Do
 
 - Refactor into multiple files for maintainability
-- Other TODO stuff in `script.py`
+- Ignore \<think> and "ASSISTANT:" (parse prompt template?)
+- Stop on interruption (e.g. user input mid-stream)
+- "Stop Generation/Stream" button
